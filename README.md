@@ -163,6 +163,34 @@ reports/discovery-target-java-v2-report.html
 docs/autonomous-discovery-plan.md
 ```
 
+## UI prototype
+
+Добавлен первый кликабельный UI для просмотра результатов сканирования:
+
+```text
+ui/index.html
+```
+
+Он показывает:
+
+- summary baseline vs current run;
+- схему страниц и эндпоинтов;
+- статусы changed/fail/removed;
+- детали выбранного endpoint;
+- request/response headers;
+- payload;
+- response body;
+- schema;
+- diff summary.
+
+Это статический прототип без backend и сборки. Его можно открыть двойным кликом по `ui/index.html`.
+
+Или одной командой:
+
+```powershell
+.\open_ui.bat
+```
+
 ## Формат сценария
 
 Сценарий описывает, какие страницы и API endpoints надо проверить:

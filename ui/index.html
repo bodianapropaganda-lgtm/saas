@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Regression Discovery Dashboard</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">RG</span>
+          <div>
+            <strong>Regression Graph</strong>
+            <small>Autonomous discovery review</small>
+          </div>
+        </div>
+
+        <section class="panel">
+          <h2>Прогоны</h2>
+          <button class="run-card active" type="button">
+            <span>Release v2</span>
+            <strong>34 diff</strong>
+            <small>Новый regression run</small>
+          </button>
+          <button class="run-card" type="button">
+            <span>Baseline v1</span>
+            <strong>13 pages</strong>
+            <small>Последний утвержденный снимок</small>
+          </button>
+        </section>
+
+        <section class="panel">
+          <h2>Фильтр</h2>
+          <div class="filters" role="group" aria-label="Entity filters">
+            <button class="filter active" data-filter="all" type="button">Все</button>
+            <button class="filter" data-filter="changed" type="button">Changed</button>
+            <button class="filter" data-filter="fail" type="button">Fail</button>
+            <button class="filter" data-filter="removed" type="button">Removed</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Итог</h2>
+          <dl class="summary-list">
+            <div><dt>Pages</dt><dd id="summary-pages">-</dd></div>
+            <div><dt>Endpoints</dt><dd id="summary-endpoints">-</dd></div>
+            <div><dt>Edges</dt><dd id="summary-edges">-</dd></div>
+            <div><dt>Critical</dt><dd id="summary-critical">-</dd></div>
+          </dl>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Discovery baseline vs release run</p>
+            <h1>Карта UI/API поведения стенда</h1>
+          </div>
+          <div class="actions">
+            <button class="ghost" type="button">Accept selected</button>
+            <button class="primary" type="button">Create issue</button>
+          </div>
+        </header>
+
+        <section class="stats-grid" id="stats-grid"></section>
+
+        <section class="layout">
+          <div class="map-card">
+            <div class="section-title">
+              <div>
+                <h2>Схема страниц и эндпоинтов</h2>
+                <p>Кликни на узел, чтобы открыть payload, headers, schema и diff.</p>
+              </div>
+              <span class="badge">Graph view</span>
+            </div>
+            <div class="graph" id="graph"></div>
+          </div>
+
+          <aside class="details" id="details"></aside>
+        </section>
+      </main>
+    </div>
+
+    <script src="./sample-data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
