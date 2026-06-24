@@ -3,6 +3,8 @@ baselines/
 runs/
 reports/
 logs/
+.runtime/
+__pycache__/
 
 # Java build output
 target-app/backend/build/
@@ -16,4 +18,3 @@ target-app/frontend/dist/
 Thumbs.db
 *.log
 *.tmp
-

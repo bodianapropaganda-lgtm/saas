@@ -44,32 +44,20 @@
       <main class="main">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Проект: Target Commerce</p>
+            <p class="eyebrow" id="topbar-project">Проект: загрузка...</p>
             <h1 id="view-title">Обзор regression discovery</h1>
           </div>
           <div class="topbar-actions">
             <button class="ghost" data-view="target" type="button">Настроить target</button>
-            <button class="primary" type="button">Запустить discovery</button>
+            <button class="primary" id="topbar-run" type="button">Запустить discovery</button>
           </div>
         </header>
 
-        <section class="status-strip">
-          <article>
-            <span>Baseline</span>
-            <strong>v1 · 13 pages</strong>
-          </article>
-          <article>
-            <span>Текущий прогон</span>
-            <strong>v2 · 34 diff</strong>
-          </article>
-          <article>
-            <span>Критично</span>
-            <strong>4 ошибки</strong>
-          </article>
-          <article>
-            <span>Последний запуск</span>
-            <strong>18 мин назад</strong>
-          </article>
+        <section class="status-strip" id="status-strip">
+          <article><span>Baseline</span><strong>загрузка...</strong></article>
+          <article><span>Текущий прогон</span><strong>загрузка...</strong></article>
+          <article><span>Критично</span><strong>загрузка...</strong></article>
+          <article><span>Последний запуск</span><strong>загрузка...</strong></article>
         </section>
 
         <section id="view-root"></section>
@@ -78,7 +66,6 @@
       <aside class="details-drawer" id="details-drawer"></aside>
     </div>
 
-    <script src="./sample-data.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

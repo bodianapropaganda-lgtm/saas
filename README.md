@@ -163,35 +163,36 @@ reports/discovery-target-java-v2-report.html
 docs/autonomous-discovery-plan.md
 ```
 
-## UI prototype
+## Product UI
 
-Добавлен первый кликабельный UI для просмотра результатов сканирования и настройки scan target:
+Добавлен локальный product UI, подключенный к core-ядру MVP:
 
 ```text
+product_server.py
+run_product_ui.bat
+run_product_ui.ps1
 ui/index.html
 ```
 
-Он показывает:
-
-- разделы продуктовой консоли: обзор, цель сканирования, прогоны, очередь ревью, каталог endpoint, graph;
-- настройки target: base URL, профиль авторизации, стартовые URL, seed API endpoints, policy и limits;
-- summary baseline vs current run;
-- схему страниц и эндпоинтов;
-- русские статусы для изменений, ошибок и удаленных endpoint;
-- детали выбранного endpoint;
-- request/response headers;
-- payload;
-- response body;
-- schema;
-- diff summary.
-
-Это статический прототип без backend и сборки. Его можно открыть двойным кликом по `ui/index.html`.
-
-Или одной командой:
+Запуск:
 
 ```powershell
-.\open_ui.bat
+.\run_product_ui.bat
 ```
+
+Скрипт поднимает локальный сервер, выбирает свободный порт в диапазоне `8765..8775` и открывает браузер.
+
+UI теперь не просто показывает моковые данные, а работает с реальными артефактами ядра:
+
+- разделы продуктовой консоли: обзор, цель сканирования, прогоны, очередь ревью, каталог endpoint, graph;
+- чтение `runs/*/discovery.json` и `baselines/*/discovery.json`;
+- построение схемы pages -> endpoint из реального discovery graph;
+- сравнение baseline/current через `discover.compare_graphs`;
+- просмотр деталей endpoint/page: response, schema, payload, diff;
+- запуск нового discovery из формы target setup;
+- утверждение текущего run как нового baseline.
+
+Если открыть `ui/index.html` напрямую как файл, UI покажет предупреждение: для живого режима нужен `product_server.py`.
 
 ## Формат сценария
 
