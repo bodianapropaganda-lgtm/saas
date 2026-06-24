@@ -20,6 +20,7 @@ BASELINES_DIR = ROOT / "baselines"
 REPORTS_DIR = ROOT / "reports"
 DEFAULT_CONFIG = ROOT / "discovery" / "target-java.json"
 DEFAULT_BASELINE = BASELINES_DIR / "discovery-target-java"
+PRODUCT_STATE = ROOT / ".runtime" / "product-state.json"
 
 
 def read_json(path):
@@ -52,13 +53,11 @@ def latest_dir(parent, filename):
     return max(candidates, key=lambda item: (item / filename).stat().st_mtime)
 
 
-def latest_report_json():
+def report_for_run(run_name):
     if not REPORTS_DIR.exists():
         return None
-    candidates = list(REPORTS_DIR.glob("*.json"))
-    if not candidates:
-        return None
-    return max(candidates, key=lambda item: item.stat().st_mtime)
+    html_report = REPORTS_DIR / f"{run_name}-report.html"
+    return html_report if html_report.exists() else None
 
 
 def read_meta(run_dir):
@@ -85,6 +84,23 @@ def graph_base_url(graph):
     return (graph or {}).get("baseUrl", "").rstrip("/")
 
 
+def product_ui_was_used():
+    return PRODUCT_STATE.exists() or bool(product_run_dirs())
+
+
+def product_run_dirs():
+    if not RUNS_DIR.exists():
+        return []
+    return [
+        item for item in RUNS_DIR.iterdir()
+        if item.is_dir() and (item / "run-meta.json").exists() and ((item / "discovery.json").exists() or (item / "run-error.json").exists())
+    ]
+
+
+def successful_product_run_dirs():
+    return [item for item in product_run_dirs() if (item / "discovery.json").exists()]
+
+
 def selected_run_and_baseline():
     default_run = RUNS_DIR / "discovery-target-java-v2"
     if (default_run / "discovery.json").exists() and (DEFAULT_BASELINE / "discovery.json").exists():
@@ -92,19 +108,23 @@ def selected_run_and_baseline():
     else:
         fallback = (latest_dir(RUNS_DIR, "discovery.json"), latest_dir(BASELINES_DIR, "discovery.json"))
 
-    if not RUNS_DIR.exists():
-        return fallback
-
-    candidates = [item for item in RUNS_DIR.iterdir() if (item / "discovery.json").exists() and (item / "run-meta.json").exists()]
+    candidates = successful_product_run_dirs()
     if not candidates:
+        if product_ui_was_used():
+            return None, None
         return fallback
 
     run_dir = max(candidates, key=lambda item: (item / "discovery.json").stat().st_mtime)
     meta = read_meta(run_dir)
     baseline_name = meta.get("baselineName")
-    baseline_dir = BASELINES_DIR / baseline_name if baseline_name else fallback[1]
+    baseline_dir = BASELINES_DIR / baseline_name if baseline_name else None
     if not baseline_dir or not (baseline_dir / "discovery.json").exists():
-        baseline_dir = fallback[1]
+        return run_dir, run_dir
+
+    run_graph = read_json(run_dir / "discovery.json")
+    baseline_graph = read_json(baseline_dir / "discovery.json")
+    if graph_base_url(run_graph) != graph_base_url(baseline_graph):
+        return run_dir, run_dir
     return run_dir, baseline_dir
 
 
@@ -292,7 +312,7 @@ def build_state():
         nodes.append(build_api_node(path, baseline.get("apiEndpoints", {}).get(path), current.get("apiEndpoints", {}).get(path), items, index, baseline_dir, run_dir))
 
     fail_count = sum(1 for item in diffs if item.get("severity") == "fail")
-    report = latest_report_json()
+    report = report_for_run(run_dir.name)
     target = target_from_config(current.get("baseUrl", ""))
     current_summary = {**current.get("summary", {}), "diffs": len(diffs), "critical": fail_count}
     return {
@@ -349,7 +369,7 @@ def target_from_config(base_url):
 def list_runs(current_run_dir, diff_count, fail_count):
     rows = []
     if RUNS_DIR.exists():
-        for item in sorted(RUNS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        for item in sorted(product_run_dirs(), key=lambda p: p.stat().st_mtime, reverse=True):
             graph_path = item / "discovery.json"
             error = read_error(item)
             if not graph_path.exists() and not error:
@@ -412,6 +432,7 @@ def run_discovery(payload):
     run_dir = safe_child_dir(RUNS_DIR, run_name)
     baseline_name = payload.get("baselineName") or "ui-baseline"
     baseline_dir = safe_child_dir(BASELINES_DIR, baseline_name)
+    write_json(PRODUCT_STATE, {"lastRunName": run_name, "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
     write_json(run_dir / "run-meta.json", {
         "baseUrl": base_url,
         "baselineName": baseline_name,
@@ -508,6 +529,55 @@ def approve_run(payload):
     return {"ok": True, "baseline": baseline_name, "run": run_id}
 
 
+def discovery_fingerprint(run_dir):
+    graph_path = run_dir / "discovery.json"
+    if not graph_path.exists():
+        return None
+    graph = read_json(graph_path)
+    return {
+        "baseUrl": graph_base_url(graph),
+        "capturedAt": graph.get("capturedAt"),
+        "summary": graph.get("summary", {}),
+    }
+
+
+def remove_run_reports(run_id):
+    removed = []
+    for suffix in [".html", ".json"]:
+        path = REPORTS_DIR / f"{run_id}-report{suffix}"
+        if path.exists():
+            path.unlink()
+            removed.append(path.name)
+    return removed
+
+
+def remove_baseline_if_owned_by_run(run_dir, baseline_name, run_id):
+    if not baseline_name:
+        return None
+    baseline_dir = BASELINES_DIR / baseline_name
+    if not (baseline_dir / "discovery.json").exists():
+        return None
+
+    run_fp = discovery_fingerprint(run_dir)
+    baseline_fp = discovery_fingerprint(baseline_dir)
+    if not run_fp or run_fp != baseline_fp:
+        return None
+
+    other_references = []
+    for candidate in product_run_dirs():
+        if candidate.name == run_id:
+            continue
+        meta = read_meta(candidate)
+        if meta.get("baselineName") == baseline_name:
+            other_references.append(candidate.name)
+
+    if other_references:
+        return None
+
+    shutil.rmtree(baseline_dir)
+    return baseline_name
+
+
 def delete_run(payload):
     run_id = payload.get("runId")
     if not run_id:
@@ -515,8 +585,11 @@ def delete_run(payload):
     run_dir = safe_child_dir(RUNS_DIR, run_id)
     if not run_dir.exists() or not ((run_dir / "discovery.json").exists() or (run_dir / "run-error.json").exists()):
         raise ValueError(f"Run not found: {run_id}")
+    meta = read_meta(run_dir)
+    removed_reports = remove_run_reports(run_id)
+    removed_baseline = remove_baseline_if_owned_by_run(run_dir, meta.get("baselineName"), run_id)
     shutil.rmtree(run_dir)
-    return {"ok": True, "deleted": run_id}
+    return {"ok": True, "deleted": run_id, "removedReports": removed_reports, "removedBaseline": removed_baseline}
 
 
 class ProductHandler(BaseHTTPRequestHandler):
