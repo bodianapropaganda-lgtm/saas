@@ -267,12 +267,12 @@ function renderRunsView() {
       <div class="section-title">
         <div>
           <h2>История прогонов</h2>
-          <p>Список discovery.json из папки runs. Последний run сравнивается с текущим baseline.</p>
+          <p>Список discovery.json из папки runs. Ненужные тестовые прогоны можно удалить из рабочей папки.</p>
         </div>
         <button class="primary" data-view="target" type="button">Новый прогон</button>
       </div>
       <table class="table">
-        <thead><tr><th>Run</th><th>Target</th><th>Pages</th><th>Endpoints</th><th>Diff</th><th>Статус</th></tr></thead>
+        <thead><tr><th>Run</th><th>Target</th><th>Pages</th><th>Endpoints</th><th>Diff</th><th>Статус</th><th></th></tr></thead>
         <tbody>
           ${data.runs.map((run) => `
             <tr>
@@ -282,6 +282,7 @@ function renderRunsView() {
               <td>${run.endpoints}</td>
               <td>${run.diffs}</td>
               <td><span class="pill ${run.status}">${statusLabel(run.status)}</span></td>
+              <td><button class="ghost danger" data-delete-run="${run.id}" type="button">Удалить</button></td>
             </tr>
           `).join("")}
         </tbody>
@@ -289,6 +290,27 @@ function renderRunsView() {
     </section>
   `;
   bindViewButtons();
+  document.querySelectorAll("[data-delete-run]").forEach((button) => {
+    button.addEventListener("click", () => deleteRun(button.dataset.deleteRun));
+  });
+}
+
+async function deleteRun(runId) {
+  const confirmed = confirm(`Удалить результаты прогона "${runId}" из папки runs? Baseline затронут не будет.`);
+  if (!confirmed) return;
+  const response = await fetch("/api/runs/delete", {
+    method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({runId})
+  });
+  const body = await response.json();
+  if (!response.ok || !body.ok) {
+    alert(body.error || "Не удалось удалить run");
+    return;
+  }
+  if (selectedId && selectedId.includes(runId)) selectedId = null;
+  await loadState();
+  setView("runs");
 }
 
 function renderReviewView() {

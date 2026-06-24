@@ -27,6 +27,16 @@ def read_json(path):
         return json.load(f)
 
 
+def safe_child_dir(parent, name):
+    if not name or any(part in name for part in ["..", "/", "\\"]):
+        raise ValueError("Некорректное имя папки")
+    path = (parent / name).resolve()
+    parent = parent.resolve()
+    if not str(path).startswith(str(parent)):
+        raise ValueError("Путь выходит за пределы рабочей папки")
+    return path
+
+
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -365,7 +375,7 @@ def run_discovery(payload):
         raise ValueError("baseUrl должен начинаться с http:// или https://")
     config_path = make_temp_config(payload)
     run_name = payload.get("runName") or f"ui-run-{time.strftime('%Y%m%d-%H%M%S')}"
-    run_dir = RUNS_DIR / run_name
+    run_dir = safe_child_dir(RUNS_DIR, run_name)
     command = [
         sys.executable,
         str(ROOT / "discover.py"),
@@ -379,10 +389,10 @@ def run_discovery(payload):
     ]
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=120)
     if completed.returncode != 0:
-        raise RuntimeError(completed.stderr or completed.stdout or f"Discovery failed with {completed.returncode}")
+        raise RuntimeError(format_discovery_error(completed.stderr or completed.stdout or f"Discovery failed with {completed.returncode}"))
 
     baseline_name = payload.get("baselineName") or "ui-baseline"
-    baseline_dir = BASELINES_DIR / baseline_name
+    baseline_dir = safe_child_dir(BASELINES_DIR, baseline_name)
     write_json(run_dir / "run-meta.json", {
         "baseUrl": base_url,
         "baselineName": baseline_name,
@@ -404,19 +414,42 @@ def run_discovery(payload):
     return {"ok": True, "run": run_name, "baseline": baseline_name, "action": baseline_action, "stdout": completed.stdout}
 
 
+def format_discovery_error(message):
+    if "WinError 10013" in message:
+        return (
+            "Windows запретил исходящее сетевое подключение: WinError 10013. "
+            "Если ты запускаешь UI из Codex-сессии, внешний интернет может быть заблокирован sandbox-политикой. "
+            "Останови сервер и запусти run_product_ui.bat обычным двойным кликом или из обычного PowerShell, "
+            "а затем повтори discovery для сайта, на который у тебя есть разрешение. "
+            f"Исходная ошибка: {message.strip()}"
+        )
+    return message.strip()
+
+
 def approve_run(payload):
     run_id = payload.get("runId")
     baseline_name = payload.get("baselineName") or "ui-baseline"
     if not run_id:
         raise ValueError("runId is required")
-    run_dir = RUNS_DIR / run_id
+    run_dir = safe_child_dir(RUNS_DIR, run_id)
     if not (run_dir / "discovery.json").exists():
         raise ValueError(f"Run not found: {run_id}")
-    baseline_dir = BASELINES_DIR / baseline_name
+    baseline_dir = safe_child_dir(BASELINES_DIR, baseline_name)
     if baseline_dir.exists():
         shutil.rmtree(baseline_dir)
     shutil.copytree(run_dir, baseline_dir)
     return {"ok": True, "baseline": baseline_name, "run": run_id}
+
+
+def delete_run(payload):
+    run_id = payload.get("runId")
+    if not run_id:
+        raise ValueError("runId is required")
+    run_dir = safe_child_dir(RUNS_DIR, run_id)
+    if not run_dir.exists() or not (run_dir / "discovery.json").exists():
+        raise ValueError(f"Run not found: {run_id}")
+    shutil.rmtree(run_dir)
+    return {"ok": True, "deleted": run_id}
 
 
 class ProductHandler(BaseHTTPRequestHandler):
@@ -442,6 +475,8 @@ class ProductHandler(BaseHTTPRequestHandler):
                 return self.send_json(run_discovery(payload))
             if self.path == "/api/baseline/approve":
                 return self.send_json(approve_run(payload))
+            if self.path == "/api/runs/delete":
+                return self.send_json(delete_run(payload))
             self.send_error(404)
         except Exception as exc:
             self.send_json({"ok": False, "error": str(exc)}, status=400)
