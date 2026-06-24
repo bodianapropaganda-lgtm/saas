@@ -15,11 +15,15 @@
 - читает реальные `runs/*/discovery.json`;
 - читает утвержденный baseline из `baselines/*/discovery.json`;
 - строит каталог endpoint и graph из фактического discovery graph;
+- показывает graph как карту с pan/zoom, reset и режимом фокуса по выбранному узлу;
 - показывает diff между baseline и последним связанным run;
+- сохраняет failed run в `runs/<run>/run-error.json` и показывает причину ошибки справа;
 - открывает HTML report из `reports/`;
 - запускает новый discovery через `/api/discovery/run`;
 - может принять текущий run как baseline через `/api/baseline/approve`.
 - может удалить ненужный run из `runs/` через `/api/runs/delete`.
+
+Первый успешный run для нового сайта автоматически становится baseline, если baseline еще не создан или его `Base URL` отличается от нового target.
 
 Рабочий контур:
 

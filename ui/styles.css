@@ -387,6 +387,38 @@ h2 {
   text-align: left;
 }
 
+.table .ghost,
+.table .secondary,
+.table .primary,
+.status-button {
+  min-height: 30px;
+  border-radius: 8px;
+  padding: 0 10px;
+}
+
+.table .ghost {
+  border: 1px solid #cbd5e1;
+  background: white;
+}
+
+.table .ghost.danger {
+  border-color: #fecaca;
+}
+
+.status-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.run-item h3 button {
+  border: 0;
+  background: transparent;
+  color: #1457a8;
+  padding: 0;
+  font-weight: 800;
+}
+
 .review-list,
 .run-list,
 .target-list {
@@ -419,13 +451,55 @@ h2 {
 .graph {
   position: relative;
   min-height: 520px;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid #edf1f6;
   border-radius: 8px;
   background:
     linear-gradient(#f8fafc 1px, transparent 1px),
     linear-gradient(90deg, #f8fafc 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+.graph-toolbar {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 24px);
+}
+
+.graph-toolbar .secondary {
+  min-height: 32px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.graph-toolbar .active {
+  background: #111827;
+  border-color: #111827;
+  color: white;
+}
+
+.graph-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.graph-viewport:active {
+  cursor: grabbing;
+}
+
+.graph-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
 }
 
 .edge-layer {
@@ -436,12 +510,20 @@ h2 {
   pointer-events: none;
 }
 
+.edge-layer line {
+  opacity: 0.72;
+}
+
+.edge-layer line.faded {
+  opacity: 0.2;
+}
+
 .node {
   position: absolute;
   display: grid;
   gap: 4px;
-  width: 174px;
-  min-height: 76px;
+  width: 206px;
+  min-height: 84px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: white;

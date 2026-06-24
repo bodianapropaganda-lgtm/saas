@@ -1,7 +1,14 @@
 let data = null;
 let activeView = "overview";
 let selectedId = null;
+let selectedRunId = null;
 let endpointFilter = "all";
+const graphState = {
+  scale: 1,
+  x: 0,
+  y: 0,
+  showAllEdges: false
+};
 
 const viewRoot = document.getElementById("view-root");
 const detailsEl = document.getElementById("details-drawer");
@@ -80,7 +87,12 @@ function renderShell() {
 }
 
 function selectedNode() {
+  if (selectedRunId) return null;
   return data.nodes.find((node) => node.id === selectedId) || data.nodes[0] || null;
+}
+
+function selectedRun() {
+  return data.runs.find((run) => run.id === selectedRunId) || null;
 }
 
 function endpointNodes() {
@@ -147,6 +159,7 @@ function renderOverviewView() {
     </div>
   `;
   bindViewButtons();
+  bindRunButtons();
   renderGraphInto(document.getElementById("overview-graph"), data.nodes, data.edges);
 }
 
@@ -286,12 +299,12 @@ function renderRunsView() {
         <tbody>
           ${data.runs.map((run) => `
             <tr>
-              <td><button type="button">${run.label}</button><br><span class="muted">${formatDate(run.startedAt)}</span></td>
+              <td><button data-run-details="${run.id}" type="button">${run.label}</button><br><span class="muted">${formatDate(run.startedAt || run.error?.createdAt)}</span></td>
               <td>${run.environment}</td>
               <td>${run.pages}</td>
               <td>${run.endpoints}</td>
               <td>${run.diffs}</td>
-              <td><span class="pill ${run.status}">${statusLabel(run.status)}</span></td>
+              <td><button class="status-button" data-run-details="${run.id}" type="button"><span class="pill ${run.status}">${statusLabel(run.status)}</span></button></td>
               <td><button class="ghost danger" data-delete-run="${run.id}" type="button">Удалить</button></td>
             </tr>
           `).join("")}
@@ -303,6 +316,7 @@ function renderRunsView() {
   document.querySelectorAll("[data-delete-run]").forEach((button) => {
     button.addEventListener("click", () => deleteRun(button.dataset.deleteRun));
   });
+  bindRunButtons();
 }
 
 async function deleteRun(runId) {
@@ -415,10 +429,10 @@ function renderGraphView() {
 function runCard(run) {
   return `
     <div class="run-item">
-      <h3>${run.label}</h3>
-      <p class="muted">${run.environment} · ${formatDate(run.startedAt)}</p>
+      <h3><button data-run-details="${run.id}" type="button">${run.label}</button></h3>
+      <p class="muted">${run.environment} · ${formatDate(run.startedAt || run.error?.createdAt)}</p>
       <div class="toolbar">
-        <span class="pill ${run.status}">${statusLabel(run.status)}</span>
+        <button class="status-button" data-run-details="${run.id}" type="button"><span class="pill ${run.status}">${statusLabel(run.status)}</span></button>
         <span class="badge">${run.diffs} diff</span>
         <span class="badge">${run.endpoints} endpoints</span>
       </div>
@@ -448,32 +462,184 @@ function reviewItem({node, diff}) {
 }
 
 function renderGraphInto(container, nodes, edges) {
-  const width = 1100;
-  const height = Math.max(560, Math.ceil(nodes.length / 2) * 130 + 140);
-  const visibleIds = new Set(nodes.map((node) => node.id));
-  const lines = edges
-    .filter(([from, to]) => visibleIds.has(from) && visibleIds.has(to))
-    .map(([from, to]) => {
-      const a = nodes.find((node) => node.id === from);
-      const b = nodes.find((node) => node.id === to);
-      const color = b.status === "fail" || b.status === "removed" ? "#ef4444" : "#94a3b8";
-      return `<line x1="${a.x + 174}" y1="${a.y + 38}" x2="${b.x}" y2="${b.y + 38}" stroke="${color}" stroke-width="2" stroke-dasharray="${b.status === "removed" ? "5 5" : "0"}" />`;
-    }).join("");
-  container.style.minHeight = `${height}px`;
+  const layout = layoutGraph(nodes);
+  const width = layout.width;
+  const height = layout.height;
+  const edgeRows = graphEdgesToRender(edges, layout.nodes);
+  const lines = edgeRows.map(([from, to, faded]) => {
+    const a = layout.byId.get(from);
+    const b = layout.byId.get(to);
+    const color = b.status === "fail" || b.status === "removed" ? "#ef4444" : "#94a3b8";
+    return `<line class="${faded ? "faded" : ""}" x1="${a.x + 190}" y1="${a.y + 42}" x2="${b.x}" y2="${b.y + 42}" stroke="${color}" stroke-width="2" stroke-dasharray="${b.status === "removed" ? "5 5" : "0"}" />`;
+  }).join("");
+
   container.innerHTML = `
-    <svg class="edge-layer" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${lines}</svg>
-    ${nodes.map((node) => `
-      <button class="node ${node.type} ${node.status} ${node.id === selectedId ? "selected" : ""}" style="left:${node.x}px; top:${node.y}px" data-entity="${node.id}" type="button">
-        <small>${node.type === "endpoint" ? "endpoint" : "page"} · ${statusLabel(node.status)}</small>
-        <strong>${node.label}</strong>
-        <small>${node.summary}</small>
-      </button>
-    `).join("")}
+    <div class="graph-toolbar">
+      <button class="secondary graph-zoom" data-zoom="in" type="button">+</button>
+      <button class="secondary graph-zoom" data-zoom="out" type="button">-</button>
+      <button class="secondary graph-reset" type="button">Reset</button>
+      <button class="secondary graph-edge-mode ${graphState.showAllEdges ? "active" : ""}" type="button">${graphState.showAllEdges ? "Все связи" : "Фокус"}</button>
+      <span class="muted">${nodes.length} nodes · ${edges.length} edges</span>
+    </div>
+    <div class="graph-viewport">
+      <div class="graph-world" style="width:${width}px; height:${height}px;">
+        <svg class="edge-layer" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${lines}</svg>
+        ${layout.nodes.map((node) => `
+          <button class="node ${node.type} ${node.status} ${node.id === selectedId ? "selected" : ""}" style="left:${node.x}px; top:${node.y}px" data-entity="${node.id}" type="button">
+            <small>${node.type === "endpoint" ? "endpoint" : "page"} · ${statusLabel(node.status)}</small>
+            <strong>${node.label}</strong>
+            <small>${node.summary}</small>
+          </button>
+        `).join("")}
+      </div>
+    </div>
   `;
+  applyGraphTransform(container);
+  bindGraphControls(container);
   bindEntityButtons(container);
 }
 
+function layoutGraph(nodes) {
+  const pages = nodes.filter((node) => node.type === "page");
+  const endpoints = nodes.filter((node) => node.type === "endpoint");
+  const rowGap = 126;
+  const colGap = 330;
+  const pageCols = 2;
+  const endpointCols = 3;
+  const layoutNodes = [];
+
+  pages.forEach((node, index) => {
+    const col = index % pageCols;
+    const row = Math.floor(index / pageCols);
+    layoutNodes.push({...node, x: 40 + col * colGap, y: 54 + row * rowGap});
+  });
+
+  endpoints.forEach((node, index) => {
+    const col = index % endpointCols;
+    const row = Math.floor(index / endpointCols);
+    layoutNodes.push({...node, x: 760 + col * colGap, y: 54 + row * rowGap});
+  });
+
+  const maxX = Math.max(1100, ...layoutNodes.map((node) => node.x + 240));
+  const maxY = Math.max(620, ...layoutNodes.map((node) => node.y + 140));
+  return {
+    nodes: layoutNodes,
+    byId: new Map(layoutNodes.map((node) => [node.id, node])),
+    width: maxX + 80,
+    height: maxY + 80
+  };
+}
+
+function graphEdgesToRender(edges, nodes) {
+  const ids = new Set(nodes.map((node) => node.id));
+  const valid = edges.filter(([from, to]) => ids.has(from) && ids.has(to));
+  if (graphState.showAllEdges) return valid.map(([from, to]) => [from, to, valid.length > 120]);
+  if (selectedId) {
+    const focused = valid.filter(([from, to]) => from === selectedId || to === selectedId);
+    return focused.map(([from, to]) => [from, to, false]);
+  }
+  return valid.slice(0, 60).map(([from, to]) => [from, to, true]);
+}
+
+function applyGraphTransform(container) {
+  const world = container.querySelector(".graph-world");
+  if (!world) return;
+  world.style.transform = `translate(${graphState.x}px, ${graphState.y}px) scale(${graphState.scale})`;
+}
+
+function bindGraphControls(container) {
+  const viewport = container.querySelector(".graph-viewport");
+  container.querySelectorAll("[data-zoom]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const delta = button.dataset.zoom === "in" ? 0.15 : -0.15;
+      graphState.scale = clamp(graphState.scale + delta, 0.35, 2.2);
+      applyGraphTransform(container);
+    });
+  });
+  container.querySelector(".graph-reset").addEventListener("click", () => {
+    graphState.scale = 1;
+    graphState.x = 0;
+    graphState.y = 0;
+    applyGraphTransform(container);
+  });
+  container.querySelector(".graph-edge-mode").addEventListener("click", () => {
+    graphState.showAllEdges = !graphState.showAllEdges;
+    renderView();
+  });
+
+  viewport.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const delta = event.deltaY > 0 ? -0.08 : 0.08;
+    graphState.scale = clamp(graphState.scale + delta, 0.35, 2.2);
+    applyGraphTransform(container);
+  }, {passive: false});
+
+  let dragging = null;
+  viewport.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".node")) return;
+    dragging = {x: event.clientX, y: event.clientY, tx: graphState.x, ty: graphState.y};
+    viewport.setPointerCapture(event.pointerId);
+  });
+  viewport.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    graphState.x = dragging.tx + event.clientX - dragging.x;
+    graphState.y = dragging.ty + event.clientY - dragging.y;
+    applyGraphTransform(container);
+  });
+  viewport.addEventListener("pointerup", () => {
+    dragging = null;
+  });
+  viewport.addEventListener("pointercancel", () => {
+    dragging = null;
+  });
+}
+
+function renderRunDetails(run) {
+  const error = run.error;
+  detailsEl.innerHTML = `
+    <div class="details-header">
+      <div>
+        <h2>${run.label}</h2>
+        <p>${run.environment || "Target не указан"}</p>
+      </div>
+      <span class="pill ${run.status}">${statusLabel(run.status)}</span>
+    </div>
+    <div class="info-grid">
+      <div class="info"><span>Pages</span><strong>${run.pages}</strong></div>
+      <div class="info"><span>Endpoints</span><strong>${run.endpoints}</strong></div>
+      <div class="info"><span>Diff</span><strong>${run.diffs}</strong></div>
+      <div class="info"><span>Запуск</span><strong>${formatDate(run.startedAt || error?.createdAt)}</strong></div>
+    </div>
+    ${error ? `
+      <div class="diff-list">
+        <div class="diff-item">
+          <span class="pill fail">${error.kind || "Ошибка"}</span>
+          <strong>Почему прогон завершился ошибкой</strong>
+          <p>${escapeHtml(error.message || "Причина не сохранена.")}</p>
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab active" type="button">Ошибка</button>
+      </div>
+      <pre>${escapeHtml(stringify(error))}</pre>
+    ` : `
+      <div class="diff-list">
+        <div class="diff-item">
+          <span class="pill ${run.status}">${statusLabel(run.status)}</span>
+          <strong>Прогон завершён</strong>
+          <p>Для подробностей выбери endpoint/page в graph или каталоге.</p>
+        </div>
+      </div>
+    `}
+  `;
+}
+
 function renderDetails() {
+  const run = selectedRun();
+  if (run) {
+    renderRunDetails(run);
+    return;
+  }
   const node = selectedNode();
   if (!node) {
     detailsEl.innerHTML = `<div class="details-header"><h2>Нет данных</h2></div>`;
@@ -527,10 +693,20 @@ function bindTabs() {
 function bindEntityButtons(root = document) {
   root.querySelectorAll("[data-entity]").forEach((button) => {
     button.addEventListener("click", () => {
+      selectedRunId = null;
       selectedId = button.dataset.entity;
       renderDetails();
       if (activeView === "graph") renderGraphView();
       if (activeView === "overview") renderOverviewView();
+    });
+  });
+}
+
+function bindRunButtons(root = document) {
+  root.querySelectorAll("[data-run-details]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectedRunId = button.dataset.runDetails;
+      renderDetails();
     });
   });
 }
@@ -565,6 +741,10 @@ function formatDate(value) {
 function dateStamp() {
   const now = new Date();
   return now.toISOString().slice(0, 19).replaceAll("-", "").replaceAll(":", "").replace("T", "-");
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function emptyLine(text) {

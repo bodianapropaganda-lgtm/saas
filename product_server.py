@@ -61,6 +61,30 @@ def latest_report_json():
     return max(candidates, key=lambda item: item.stat().st_mtime)
 
 
+def read_meta(run_dir):
+    meta_path = run_dir / "run-meta.json"
+    if not meta_path.exists():
+        return {}
+    try:
+        return read_json(meta_path)
+    except json.JSONDecodeError:
+        return {}
+
+
+def read_error(run_dir):
+    error_path = run_dir / "run-error.json"
+    if not error_path.exists():
+        return None
+    try:
+        return read_json(error_path)
+    except json.JSONDecodeError:
+        return {"message": error_path.read_text(encoding="utf-8", errors="replace")}
+
+
+def graph_base_url(graph):
+    return (graph or {}).get("baseUrl", "").rstrip("/")
+
+
 def selected_run_and_baseline():
     default_run = RUNS_DIR / "discovery-target-java-v2"
     if (default_run / "discovery.json").exists() and (DEFAULT_BASELINE / "discovery.json").exists():
@@ -76,7 +100,7 @@ def selected_run_and_baseline():
         return fallback
 
     run_dir = max(candidates, key=lambda item: (item / "discovery.json").stat().st_mtime)
-    meta = read_json(run_dir / "run-meta.json")
+    meta = read_meta(run_dir)
     baseline_name = meta.get("baselineName")
     baseline_dir = BASELINES_DIR / baseline_name if baseline_name else fallback[1]
     if not baseline_dir or not (baseline_dir / "discovery.json").exists():
@@ -270,6 +294,7 @@ def build_state():
     fail_count = sum(1 for item in diffs if item.get("severity") == "fail")
     report = latest_report_json()
     target = target_from_config(current.get("baseUrl", ""))
+    current_summary = {**current.get("summary", {}), "diffs": len(diffs), "critical": fail_count}
     return {
         "project": current.get("name", "Regression Graph"),
         "mode": "live",
@@ -284,7 +309,7 @@ def build_state():
             "id": run_dir.name,
             "label": run_dir.name,
             "capturedAt": current.get("capturedAt", ""),
-            "summary": {**current.get("summary", {}), "diffs": len(diffs), "critical": fail_count},
+            "summary": current_summary,
             "reportUrl": f"/reports/{report.name}" if report else None,
         },
         "runs": list_runs(run_dir, len(diffs), fail_count),
@@ -326,19 +351,24 @@ def list_runs(current_run_dir, diff_count, fail_count):
     if RUNS_DIR.exists():
         for item in sorted(RUNS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
             graph_path = item / "discovery.json"
-            if not graph_path.exists():
+            error = read_error(item)
+            if not graph_path.exists() and not error:
                 continue
-            graph = read_json(graph_path)
+            graph = read_json(graph_path) if graph_path.exists() else {}
+            meta = read_meta(item)
             is_current = item == current_run_dir
+            run_diff_count = diff_count if is_current else 0
+            status = "fail" if error or (is_current and fail_count) else "changed" if is_current and diff_count else "passed"
             rows.append({
                 "id": item.name,
                 "label": item.name,
-                "environment": graph.get("baseUrl", ""),
+                "environment": graph.get("baseUrl", "") or meta.get("baseUrl", ""),
                 "startedAt": graph.get("capturedAt", ""),
                 "pages": graph.get("summary", {}).get("pages", 0),
                 "endpoints": graph.get("summary", {}).get("apiEndpoints", 0),
-                "diffs": diff_count if is_current else 0,
-                "status": "fail" if is_current and fail_count else "changed" if is_current and diff_count else "passed",
+                "diffs": run_diff_count,
+                "status": status,
+                "error": error,
             })
     return rows
 
@@ -350,7 +380,7 @@ def empty_state():
         "target": target_from_config(""),
         "baseline": {"id": None, "label": "Нет baseline", "capturedAt": "", "summary": {"pages": 0, "apiEndpoints": 0, "edges": 0}},
         "current": {"id": None, "label": "Нет run", "capturedAt": "", "summary": {"pages": 0, "apiEndpoints": 0, "edges": 0, "diffs": 0, "critical": 0}},
-        "runs": [],
+        "runs": list_runs(None, 0, 0),
         "nodes": [],
         "edges": [],
     }
@@ -380,6 +410,14 @@ def run_discovery(payload):
     config_path = make_temp_config(payload)
     run_name = payload.get("runName") or f"ui-run-{time.strftime('%Y%m%d-%H%M%S')}"
     run_dir = safe_child_dir(RUNS_DIR, run_name)
+    baseline_name = payload.get("baselineName") or "ui-baseline"
+    baseline_dir = safe_child_dir(BASELINES_DIR, baseline_name)
+    write_json(run_dir / "run-meta.json", {
+        "baseUrl": base_url,
+        "baselineName": baseline_name,
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source": "product-ui",
+    })
     command = [
         sys.executable,
         str(ROOT / "discover.py"),
@@ -395,23 +433,24 @@ def run_discovery(payload):
     try:
         completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=overall_timeout_sec)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(format_timeout_error(base_url, run_name, overall_timeout_sec, exc))
+        message = format_timeout_error(base_url, run_name, overall_timeout_sec, exc)
+        write_run_error(run_dir, base_url, message, "timeout", command)
+        raise RuntimeError(message)
     if completed.returncode != 0:
-        raise RuntimeError(format_discovery_error(completed.stderr or completed.stdout or f"Discovery failed with {completed.returncode}"))
+        message = format_discovery_error(completed.stderr or completed.stdout or f"Discovery failed with {completed.returncode}")
+        write_run_error(run_dir, base_url, message, "process_error", command)
+        raise RuntimeError(message)
 
-    baseline_name = payload.get("baselineName") or "ui-baseline"
-    baseline_dir = safe_child_dir(BASELINES_DIR, baseline_name)
-    write_json(run_dir / "run-meta.json", {
-        "baseUrl": base_url,
-        "baselineName": baseline_name,
-        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "source": "product-ui",
-    })
-    if payload.get("approveAsBaseline") or not (baseline_dir / "discovery.json").exists():
+    baseline_exists = (baseline_dir / "discovery.json").exists()
+    baseline_graph = read_json(baseline_dir / "discovery.json") if baseline_exists else None
+    base_url_changed = baseline_exists and graph_base_url(baseline_graph) != base_url.rstrip("/")
+    should_approve = payload.get("approveAsBaseline") or not baseline_exists or base_url_changed
+
+    if should_approve:
         if baseline_dir.exists():
             shutil.rmtree(baseline_dir)
         shutil.copytree(run_dir, baseline_dir)
-        baseline_action = "approved"
+        baseline_action = "approved_first_baseline" if not baseline_exists or base_url_changed else "approved"
     else:
         report_path = REPORTS_DIR / f"{run_name}-report.html"
         diffs = discover.compare_graphs(read_json(baseline_dir / "discovery.json"), read_json(run_dir / "discovery.json"))
@@ -420,6 +459,16 @@ def run_discovery(payload):
         baseline_action = "compared"
 
     return {"ok": True, "run": run_name, "baseline": baseline_name, "action": baseline_action, "stdout": completed.stdout}
+
+
+def write_run_error(run_dir, base_url, message, kind, command):
+    write_json(run_dir / "run-error.json", {
+        "kind": kind,
+        "message": message,
+        "baseUrl": base_url,
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "command": command,
+    })
 
 
 def format_discovery_error(message):
@@ -464,7 +513,7 @@ def delete_run(payload):
     if not run_id:
         raise ValueError("runId is required")
     run_dir = safe_child_dir(RUNS_DIR, run_id)
-    if not run_dir.exists() or not (run_dir / "discovery.json").exists():
+    if not run_dir.exists() or not ((run_dir / "discovery.json").exists() or (run_dir / "run-error.json").exists()):
         raise ValueError(f"Run not found: {run_id}")
     shutil.rmtree(run_dir)
     return {"ok": True, "deleted": run_id}

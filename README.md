@@ -187,11 +187,15 @@ UI теперь не просто показывает моковые данны
 - разделы продуктовой консоли: обзор, цель сканирования, прогоны, очередь ревью, каталог endpoint, graph;
 - чтение `runs/*/discovery.json` и `baselines/*/discovery.json`;
 - построение схемы pages -> endpoint из реального discovery graph;
+- graph-карту с pan/zoom, режимом фокуса и кнопкой сброса масштаба;
 - сравнение baseline/current через `discover.compare_graphs`;
 - просмотр деталей endpoint/page: response, schema, payload, diff;
+- просмотр причины ошибки failed run в правой панели;
 - запуск нового discovery из формы target setup;
 - утверждение текущего run как нового baseline.
 - удаление ненужных результатов прогона из `runs/`.
+
+Если baseline для выбранного сайта еще не существует или относится к другому `Base URL`, первый успешный run автоматически утверждается как baseline и не показывает ложные diff.
 
 Если открыть `ui/index.html` напрямую как файл, UI покажет предупреждение: для живого режима нужен `product_server.py`.
 
