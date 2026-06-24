@@ -1,0 +1,19 @@
+# Generated regression artifacts
+baselines/
+runs/
+reports/
+logs/
+
+# Java build output
+target-app/backend/build/
+
+# Node/Vite output
+target-app/frontend/node_modules/
+target-app/frontend/dist/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+

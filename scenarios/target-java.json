@@ -1,0 +1,25 @@
+{
+  "name": "target-commerce-java",
+  "checks": [
+    {
+      "id": "home-page",
+      "type": "page",
+      "path": "/"
+    },
+    {
+      "id": "products-api",
+      "type": "api",
+      "path": "/api/products"
+    },
+    {
+      "id": "cart-summary-api",
+      "type": "api",
+      "path": "/api/cart/summary"
+    },
+    {
+      "id": "health-api",
+      "type": "api",
+      "path": "/api/health"
+    }
+  ]
+}

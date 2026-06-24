@@ -1,0 +1,20 @@
+{
+  "name": "demo-commerce",
+  "checks": [
+    {
+      "id": "home-page",
+      "type": "page",
+      "path": "/"
+    },
+    {
+      "id": "products-api",
+      "type": "api",
+      "path": "/api/products"
+    },
+    {
+      "id": "health-api",
+      "type": "api",
+      "path": "/api/health"
+    }
+  ]
+}
