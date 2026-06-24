@@ -1,0 +1,16 @@
+{
+  "name": "target-commerce-discovery",
+  "startPaths": ["/"],
+  "seedApiPaths": [
+    "/api/health",
+    "/api/products",
+    "/api/cart/summary"
+  ],
+  "limits": {
+    "maxPages": 20,
+    "maxDepth": 2,
+    "rateLimitMs": 150
+  },
+  "allowedMethods": ["GET"],
+  "allowedPathPrefixes": ["/", "/api/"]
+}

@@ -124,6 +124,45 @@ python regress.py approve --run runs/run1 --baseline baselines/demo
 python regress.py compare --baseline baselines/demo --run runs/run2 --report reports/report.html
 ```
 
+## Autonomous Discovery Mode
+
+После уточнения идеи добавлен первый discovery-режим:
+
+```text
+discover.py
+discovery/target-java.json
+run_discovery_demo.bat
+run_discovery_demo.ps1
+```
+
+Он демонстрирует следующий слой продукта: сервис не только запускает заранее описанный сценарий, а сам начинает со стартовой страницы, обходит ссылки, собирает API-подсказки, строит graph и сравнивает его между релизами.
+
+Запуск:
+
+```powershell
+.\run_discovery_demo.bat
+```
+
+Что делает команда:
+
+1. Компилирует Java target app.
+2. Запускает `v1`.
+3. Делает discovery baseline.
+4. Запускает `v2`.
+5. Делает второй discovery run.
+6. Сравнивает discovery graph.
+7. Генерирует отчет:
+
+```text
+reports/discovery-target-java-v2-report.html
+```
+
+Подробный план и переоценка рисков:
+
+```text
+docs/autonomous-discovery-plan.md
+```
+
 ## Формат сценария
 
 Сценарий описывает, какие страницы и API endpoints надо проверить:

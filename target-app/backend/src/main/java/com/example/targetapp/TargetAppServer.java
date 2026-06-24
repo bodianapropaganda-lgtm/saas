@@ -51,23 +51,24 @@ public class TargetAppServer {
     }
 
     private void handleHome(HttpExchange exchange) throws IOException {
-        if (!"GET".equals(exchange.getRequestMethod()) || !"/".equals(exchange.getRequestURI().getPath())) {
+        String path = exchange.getRequestURI().getPath();
+        if (!"GET".equals(exchange.getRequestMethod()) || !(path.equals("/") || path.equals("/catalog") || path.equals("/cart") || path.startsWith("/product/"))) {
             json(exchange, 404, "{\"error\":\"not found\"}");
             return;
         }
 
         List<Product> products = products();
-        String title = isV2() ? "Revenue dashboard: catalog overview" : "Catalog overview";
+        String title = pageTitle(path);
         String promo = isV2() ? "Promo threshold changed to 75 USD" : "Promo threshold: free shipping from 50 USD";
         StringBuilder cards = new StringBuilder();
         for (Product product : products) {
             cards.append("""
-                <article class="product-card" data-product-id="%s">
-                  <h2>%s</h2>
+                <article class="product-card" data-product-id="%s" data-api="/api/products/%s">
+                  <h2><a href="/product/%s" data-api="/api/products/%s">%s</a></h2>
                   <p class="sku">%s</p>
                   <p class="price">%s</p>
                 </article>
-                """.formatted(product.id(), escape(product.title()), product.sku(), product.priceJsonValue()));
+                """.formatted(product.id(), product.id(), product.id(), product.id(), escape(product.title()), product.sku(), product.priceJsonValue()));
         }
 
         String html = """
@@ -85,6 +86,8 @@ public class TargetAppServer {
                   .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
                   .metric, .product-card { background: white; border: 1px solid #dfe5ef; border-radius: 8px; padding: 14px; }
                   .metric strong { display: block; font-size: 24px; }
+                  nav { display: flex; gap: 12px; margin: 18px 0; }
+                  nav a, .product-card a { color: #1457a8; text-decoration: none; }
                   .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
                   .product-card h2 { margin: 0 0 8px; font-size: 18px; }
                   .sku { color: #647084; }
@@ -100,10 +103,15 @@ public class TargetAppServer {
                     </div>
                     <div class="version">Backend version: %s</div>
                   </header>
-                  <section class="summary">
-                    <div class="metric"><span>Products</span><strong>%d</strong></div>
-                    <div class="metric"><span>In stock</span><strong>%d</strong></div>
-                    <div class="metric"><span>Cart total</span><strong>%s</strong></div>
+                  <nav>
+                    <a href="/" data-api="/api/health">Home</a>
+                    <a href="/catalog" data-api="/api/products">Catalog</a>
+                    <a href="/cart" data-api="/api/cart/summary">Cart</a>
+                  </nav>
+                  <section class="summary" data-api="/api/products">
+                    <div class="metric" data-api="/api/products"><span>Products</span><strong>%d</strong></div>
+                    <div class="metric" data-api="/api/products"><span>In stock</span><strong>%d</strong></div>
+                    <div class="metric" data-api="/api/cart/summary"><span>Cart total</span><strong>%s</strong></div>
                   </section>
                   <section class="grid">
                     %s
@@ -113,6 +121,19 @@ public class TargetAppServer {
             </html>
             """.formatted(title, promo, version, products.size(), inStock(products), cartTotal(products), cards);
         html(exchange, 200, html);
+    }
+
+    private String pageTitle(String path) {
+        if (path.equals("/cart")) {
+            return isV2() ? "Cart revenue summary" : "Cart summary";
+        }
+        if (path.startsWith("/product/")) {
+            return isV2() ? "Product revenue details" : "Product details";
+        }
+        if (path.equals("/catalog")) {
+            return isV2() ? "Revenue dashboard: catalog overview" : "Catalog overview";
+        }
+        return isV2() ? "Revenue dashboard: home" : "Commerce home";
     }
 
     private void handleHealth(HttpExchange exchange) throws IOException {
