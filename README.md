@@ -165,7 +165,7 @@ docs/autonomous-discovery-plan.md
 
 ## UI prototype
 
-Добавлен первый кликабельный UI для просмотра результатов сканирования:
+Добавлен первый кликабельный UI для просмотра результатов сканирования и настройки scan target:
 
 ```text
 ui/index.html
@@ -173,9 +173,11 @@ ui/index.html
 
 Он показывает:
 
+- разделы продуктовой консоли: обзор, цель сканирования, прогоны, очередь ревью, каталог endpoint, graph;
+- настройки target: base URL, профиль авторизации, стартовые URL, seed API endpoints, policy и limits;
 - summary baseline vs current run;
 - схему страниц и эндпоинтов;
-- статусы changed/fail/removed;
+- русские статусы для изменений, ошибок и удаленных endpoint;
 - детали выбранного endpoint;
 - request/response headers;
 - payload;

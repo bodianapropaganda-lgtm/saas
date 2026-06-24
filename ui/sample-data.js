@@ -1,5 +1,70 @@
 window.SCAN_DATA = {
   project: "Target Commerce",
+  target: {
+    project: "Target Commerce",
+    environment: "Staging",
+    baseUrl: "http://127.0.0.1:8131",
+    authProfile: "Test user: qa-catalog-owner",
+    policy: "GET + safe POST allowlist",
+    startUrls: ["/", "/catalog", "/cart"],
+    seedApiPaths: ["/api/health", "/api/products", "/api/cart/summary"],
+    limits: {
+      maxPages: 20,
+      maxDepth: 2,
+      rateLimitMs: 150,
+      maxActionsPerPage: 12
+    },
+    guardrails: [
+      {
+        title: "Лимит запросов",
+        text: "Runner делает паузы между запросами и ограничивает параллельность, чтобы не перегружать test env."
+      },
+      {
+        title: "Политика действий",
+        text: "Опасные POST/PUT/DELETE выполняются только по allowlist и только на тестовых данных."
+      },
+      {
+        title: "Reset hook",
+        text: "Перед прогоном можно вызвать сброс фикстур, чтобы baseline и новый run сравнивались на одинаковом состоянии."
+      },
+      {
+        title: "Маскирование",
+        text: "Токены, requestId, timestamps и персональные поля маскируются до попадания в артефакты."
+      }
+    ]
+  },
+  runs: [
+    {
+      id: "run-v2",
+      label: "Discovery релиза v2",
+      environment: "Staging",
+      startedAt: "2026-06-24 12:18",
+      pages: 11,
+      endpoints: 11,
+      diffs: 34,
+      status: "fail"
+    },
+    {
+      id: "baseline-v1",
+      label: "Baseline v1",
+      environment: "Staging",
+      startedAt: "2026-06-24 12:00",
+      pages: 13,
+      endpoints: 13,
+      diffs: 0,
+      status: "passed"
+    },
+    {
+      id: "run-v1-draft",
+      label: "Черновой discovery",
+      environment: "QA sandbox",
+      startedAt: "2026-06-23 18:42",
+      pages: 8,
+      endpoints: 9,
+      diffs: 7,
+      status: "changed"
+    }
+  ],
   baseline: {
     id: "baseline-v1",
     label: "Baseline v1",
@@ -8,7 +73,7 @@ window.SCAN_DATA = {
   },
   current: {
     id: "release-v2",
-    label: "Release v2",
+    label: "Релиз v2",
     capturedAt: "2026-06-24T12:18:00Z",
     summary: { pages: 11, endpoints: 11, edges: 242, diffs: 34, critical: 4 }
   },
@@ -42,8 +107,8 @@ window.SCAN_DATA = {
         payload: null,
         schema: "HTML page snapshot",
         diffs: [
-          { severity: "review", title: "Visible text changed", text: "Изменился заголовок, промо-текст и агрегированные счетчики." },
-          { severity: "review", title: "DOM structure changed", text: "Карточек товара стало 8 вместо 10." }
+          { severity: "review", title: "Изменился видимый текст", text: "Изменился заголовок, промо-текст и агрегированные счетчики." },
+          { severity: "review", title: "Изменилась DOM-структура", text: "Карточек товара стало 8 вместо 10." }
         ]
       }
     },
@@ -74,7 +139,7 @@ window.SCAN_DATA = {
         payload: null,
         schema: "HTML page snapshot",
         diffs: [
-          { severity: "review", title: "Product cards changed", text: "Удалены карточки SKU-009 и SKU-010." }
+          { severity: "review", title: "Изменились карточки товаров", text: "Удалены карточки SKU-009 и SKU-010." }
         ]
       }
     },
@@ -104,7 +169,7 @@ window.SCAN_DATA = {
         payload: null,
         schema: "HTML page snapshot",
         diffs: [
-          { severity: "review", title: "Cart UI changed", text: "UI отражает новый subtotal из API." }
+          { severity: "review", title: "Изменился UI корзины", text: "UI отражает новый subtotal из API." }
         ]
       }
     },
@@ -168,8 +233,8 @@ window.SCAN_DATA = {
           }
         },
         diffs: [
-          { severity: "fail", title: "Schema changed", text: "items[].price: float -> float|string" },
-          { severity: "review", title: "Body changed", text: "count 10 -> 8, удалены SKU-009/SKU-010, переименован SKU-006." }
+          { severity: "fail", title: "Изменилась schema", text: "items[].price: float -> float|string" },
+          { severity: "review", title: "Изменился body", text: "count 10 -> 8, удалены SKU-009/SKU-010, переименован SKU-006." }
         ]
       }
     },
@@ -210,7 +275,7 @@ window.SCAN_DATA = {
           version: "str"
         },
         diffs: [
-          { severity: "review", title: "Business values changed", text: "itemsCount 10 -> 8, subtotal 649.0 -> 439.2." }
+          { severity: "review", title: "Изменились бизнес-значения", text: "itemsCount 10 -> 8, subtotal 649.0 -> 439.2." }
         ]
       }
     },
@@ -249,7 +314,7 @@ window.SCAN_DATA = {
           requestId: "str"
         },
         diffs: [
-          { severity: "review", title: "Version changed", text: "version v1 -> v2." }
+          { severity: "review", title: "Изменилась версия", text: "version v1 -> v2." }
         ]
       }
     },
@@ -257,7 +322,7 @@ window.SCAN_DATA = {
       id: "api-product-9",
       type: "endpoint",
       label: "GET /api/products/9",
-      title: "Removed Product API",
+      title: "Удаленный Product API",
       status: "removed",
       x: 710,
       y: 176,
@@ -286,7 +351,7 @@ window.SCAN_DATA = {
           current: null
         },
         diffs: [
-          { severity: "fail", title: "Endpoint removed", text: "Endpoint был в baseline, но не обнаружен в новом graph." }
+          { severity: "fail", title: "Endpoint удален", text: "Endpoint был в baseline, но не обнаружен в новом graph." }
         ]
       }
     }

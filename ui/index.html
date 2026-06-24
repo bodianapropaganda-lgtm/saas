@@ -3,84 +3,79 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Regression Discovery Dashboard</title>
+    <title>Regression Graph Console</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
-    <div class="app">
+    <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
           <span class="brand-mark">RG</span>
           <div>
             <strong>Regression Graph</strong>
-            <small>Autonomous discovery review</small>
+            <small>Discovery-регресс для test env</small>
           </div>
         </div>
 
-        <section class="panel">
-          <h2>Прогоны</h2>
-          <button class="run-card active" type="button">
-            <span>Release v2</span>
-            <strong>34 diff</strong>
-            <small>Новый regression run</small>
-          </button>
-          <button class="run-card" type="button">
-            <span>Baseline v1</span>
-            <strong>13 pages</strong>
-            <small>Последний утвержденный снимок</small>
-          </button>
-        </section>
+        <nav class="main-nav" aria-label="Основные разделы">
+          <button class="nav-item active" data-view="overview" type="button">Обзор</button>
+          <button class="nav-item" data-view="target" type="button">Цель сканирования</button>
+          <button class="nav-item" data-view="runs" type="button">Прогоны</button>
+          <button class="nav-item" data-view="review" type="button">Очередь ревью</button>
+          <button class="nav-item" data-view="catalog" type="button">Каталог endpoint</button>
+          <button class="nav-item" data-view="graph" type="button">Graph</button>
+        </nav>
 
-        <section class="panel">
-          <h2>Фильтр</h2>
-          <div class="filters" role="group" aria-label="Entity filters">
-            <button class="filter active" data-filter="all" type="button">Все</button>
-            <button class="filter" data-filter="changed" type="button">Changed</button>
-            <button class="filter" data-filter="fail" type="button">Fail</button>
-            <button class="filter" data-filter="removed" type="button">Removed</button>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h2>Итог</h2>
-          <dl class="summary-list">
-            <div><dt>Pages</dt><dd id="summary-pages">-</dd></div>
-            <div><dt>Endpoints</dt><dd id="summary-endpoints">-</dd></div>
-            <div><dt>Edges</dt><dd id="summary-edges">-</dd></div>
-            <div><dt>Critical</dt><dd id="summary-critical">-</dd></div>
-          </dl>
+        <section class="sidebar-panel">
+          <h2>Окружение</h2>
+          <button class="environment-card active" type="button">
+            <span>Staging</span>
+            <strong>http://127.0.0.1:8131</strong>
+            <small>Последний прогон: 34 diff</small>
+          </button>
+          <button class="environment-card" type="button">
+            <span>QA sandbox</span>
+            <strong>https://qa.example.internal</strong>
+            <small>Baseline ожидает обновления</small>
+          </button>
         </section>
       </aside>
 
-      <main class="workspace">
+      <main class="main">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Discovery baseline vs release run</p>
-            <h1>Карта UI/API поведения стенда</h1>
+            <p class="eyebrow">Проект: Target Commerce</p>
+            <h1 id="view-title">Обзор regression discovery</h1>
           </div>
-          <div class="actions">
-            <button class="ghost" type="button">Accept selected</button>
-            <button class="primary" type="button">Create issue</button>
+          <div class="topbar-actions">
+            <button class="ghost" data-view="target" type="button">Настроить target</button>
+            <button class="primary" type="button">Запустить discovery</button>
           </div>
         </header>
 
-        <section class="stats-grid" id="stats-grid"></section>
-
-        <section class="layout">
-          <div class="map-card">
-            <div class="section-title">
-              <div>
-                <h2>Схема страниц и эндпоинтов</h2>
-                <p>Кликни на узел, чтобы открыть payload, headers, schema и diff.</p>
-              </div>
-              <span class="badge">Graph view</span>
-            </div>
-            <div class="graph" id="graph"></div>
-          </div>
-
-          <aside class="details" id="details"></aside>
+        <section class="status-strip">
+          <article>
+            <span>Baseline</span>
+            <strong>v1 · 13 pages</strong>
+          </article>
+          <article>
+            <span>Текущий прогон</span>
+            <strong>v2 · 34 diff</strong>
+          </article>
+          <article>
+            <span>Критично</span>
+            <strong>4 ошибки</strong>
+          </article>
+          <article>
+            <span>Последний запуск</span>
+            <strong>18 мин назад</strong>
+          </article>
         </section>
+
+        <section id="view-root"></section>
       </main>
+
+      <aside class="details-drawer" id="details-drawer"></aside>
     </div>
 
     <script src="./sample-data.js"></script>
