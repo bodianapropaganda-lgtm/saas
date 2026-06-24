@@ -188,6 +188,14 @@ function renderTargetView() {
             <input name="rateLimitMs" value="${target.limits.rateLimitMs}">
           </label>
           <label class="field">
+            <span>Timeout одного запроса, sec</span>
+            <input name="requestTimeoutSec" value="${target.limits.requestTimeoutSec || 10}">
+          </label>
+          <label class="field">
+            <span>Общий timeout прогона, sec</span>
+            <input name="overallTimeoutSec" value="${target.limits.overallTimeoutSec || 300}">
+          </label>
+          <label class="field">
             <span>Первый прогон сделать baseline</span>
             <select name="approveAsBaseline">
               <option value="false" selected>Нет, сравнить</option>
@@ -237,6 +245,8 @@ async function runDiscoveryFromForm() {
     maxPages: formData.get("maxPages"),
     maxDepth: formData.get("maxDepth"),
     rateLimitMs: formData.get("rateLimitMs"),
+    requestTimeoutSec: formData.get("requestTimeoutSec"),
+    overallTimeoutSec: formData.get("overallTimeoutSec"),
     approveAsBaseline: formData.get("approveAsBaseline") === "true",
     startPaths: lines(formData.get("startPaths")),
     seedApiPaths: lines(formData.get("seedApiPaths"))

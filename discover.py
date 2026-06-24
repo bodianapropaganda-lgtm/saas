@@ -144,11 +144,11 @@ def merge_schema(left, right):
     return {"oneOf": variants}
 
 
-def fetch(url):
+def fetch(url, timeout_sec=10):
     started = time.time()
     request = Request(url, headers={"user-agent": "autonomous-discovery-mvp/0.1"})
     try:
-        with urlopen(request, timeout=10) as response:
+        with urlopen(request, timeout=timeout_sec) as response:
             body = response.read()
             return {
                 "url": url,
@@ -214,6 +214,7 @@ def discover(args):
     max_pages = int(limits.get("maxPages", 20))
     max_depth = int(limits.get("maxDepth", 2))
     rate_limit_ms = int(limits.get("rateLimitMs", 0))
+    request_timeout_sec = int(limits.get("requestTimeoutSec", 10))
     allowed_prefixes = config.get("allowedPathPrefixes", ["/"])
 
     pages = {}
@@ -233,7 +234,7 @@ def discover(args):
             time.sleep(rate_limit_ms / 1000)
 
         url = urljoin(args.base_url, path)
-        response = fetch(url)
+        response = fetch(url, request_timeout_sec)
         parser = DiscoveryParser()
         parser.feed(response["bodyText"])
         artifact_name = page_artifact_name(path)
@@ -285,7 +286,7 @@ def discover(args):
             continue
         if rate_limit_ms:
             time.sleep(rate_limit_ms / 1000)
-        api_endpoints[api_path] = capture_api(args.base_url, api_path, artifacts_dir)
+        api_endpoints[api_path] = capture_api(args.base_url, api_path, artifacts_dir, request_timeout_sec)
 
     graph = {
         "name": config.get("name", "discovery-run"),
@@ -326,9 +327,9 @@ def api_artifact_name(path):
     return f"api-{safe}.json"
 
 
-def capture_api(base_url, path, artifacts_dir):
+def capture_api(base_url, path, artifacts_dir, timeout_sec=10):
     url = urljoin(base_url, path)
-    response = fetch(url)
+    response = fetch(url, timeout_sec)
     artifact_name = api_artifact_name(path)
     (artifacts_dir / artifact_name).write_text(response["bodyText"], encoding="utf-8")
     try:

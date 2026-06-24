@@ -308,6 +308,8 @@ def target_from_config(base_url):
             "maxPages": limits.get("maxPages", 20),
             "maxDepth": limits.get("maxDepth", 2),
             "rateLimitMs": limits.get("rateLimitMs", 150),
+            "requestTimeoutSec": limits.get("requestTimeoutSec", 10),
+            "overallTimeoutSec": limits.get("overallTimeoutSec", 300),
             "maxActionsPerPage": 0,
         },
         "guardrails": [
@@ -363,6 +365,8 @@ def make_temp_config(payload):
     limits["maxPages"] = int(payload.get("maxPages") or limits.get("maxPages", 20))
     limits["maxDepth"] = int(payload.get("maxDepth") or limits.get("maxDepth", 2))
     limits["rateLimitMs"] = int(payload.get("rateLimitMs") or limits.get("rateLimitMs", 150))
+    limits["requestTimeoutSec"] = int(payload.get("requestTimeoutSec") or limits.get("requestTimeoutSec", 10))
+    limits["overallTimeoutSec"] = int(payload.get("overallTimeoutSec") or limits.get("overallTimeoutSec", 300))
     config["allowedPathPrefixes"] = payload.get("allowedPathPrefixes") or ["/", "/api/"]
     path = ROOT / ".runtime" / "last-discovery-config.json"
     write_json(path, config)
@@ -387,7 +391,11 @@ def run_discovery(payload):
         "--out",
         str(run_dir),
     ]
-    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=120)
+    overall_timeout_sec = int(payload.get("overallTimeoutSec") or read_json(config_path).get("limits", {}).get("overallTimeoutSec", 300))
+    try:
+        completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=overall_timeout_sec)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(format_timeout_error(base_url, run_name, overall_timeout_sec, exc))
     if completed.returncode != 0:
         raise RuntimeError(format_discovery_error(completed.stderr or completed.stdout or f"Discovery failed with {completed.returncode}"))
 
@@ -424,6 +432,16 @@ def format_discovery_error(message):
             f"Исходная ошибка: {message.strip()}"
         )
     return message.strip()
+
+
+def format_timeout_error(base_url, run_name, timeout_sec, exc):
+    return (
+        f"Discovery run '{run_name}' для {base_url} не уложился в общий лимит {timeout_sec} секунд. "
+        "Для внешних сайтов это обычно значит, что crawler набрал слишком много страниц или часть URL долго отвечает. "
+        "Попробуй уменьшить Максимум pages до 3-5, Max depth до 1, очистить seed API endpoints, "
+        "поставить timeout одного запроса 5 секунд или увеличить общий timeout до 300-600 секунд. "
+        f"Техническая ошибка: {exc}"
+    )
 
 
 def approve_run(payload):
