@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Regression Graph Console</title>
-    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <div class="app-shell">
@@ -13,30 +13,31 @@
           <span class="brand-mark">RG</span>
           <div>
             <strong>Regression Graph</strong>
-            <small>Discovery-регресс для test env</small>
+            <small>Автономный регресс для test env</small>
           </div>
         </div>
 
         <nav class="main-nav" aria-label="Основные разделы">
-          <button class="nav-item active" data-view="overview" type="button">Обзор</button>
-          <button class="nav-item" data-view="target" type="button">Цель сканирования</button>
-          <button class="nav-item" data-view="runs" type="button">Прогоны</button>
-          <button class="nav-item" data-view="review" type="button">Очередь ревью</button>
-          <button class="nav-item" data-view="catalog" type="button">Каталог endpoint</button>
-          <button class="nav-item" data-view="graph" type="button">Graph</button>
+          <button class="nav-item active" data-icon="O" data-view="overview" type="button">Обзор</button>
+          <button class="nav-item" data-icon="T" data-view="target" type="button">Цель сканирования</button>
+          <button class="nav-item" data-icon="R" data-view="runs" type="button">Прогоны</button>
+          <button class="nav-item" data-icon="Q" data-view="review" type="button">Очередь ревью</button>
+          <button class="nav-item" data-icon="E" data-view="catalog" type="button">Каталог discovery</button>
+          <button class="nav-item" data-icon="A" data-view="actions" type="button">Actions</button>
+          <button class="nav-item" data-icon="G" data-view="graph" type="button">Graph</button>
         </nav>
 
         <section class="sidebar-panel">
           <h2>Окружение</h2>
           <button class="environment-card active" type="button">
             <span>Staging</span>
-            <strong>http://127.0.0.1:8131</strong>
-            <small>Последний прогон: 34 diff</small>
+            <strong>Активная цель</strong>
+            <small>Берется из формы запуска discovery</small>
           </button>
           <button class="environment-card" type="button">
-            <span>QA sandbox</span>
-            <strong>https://qa.example.internal</strong>
-            <small>Baseline ожидает обновления</small>
+            <span>Storage V2</span>
+            <strong>Project / target / run</strong>
+            <small>Индекс поверх runs, baselines и reports</small>
           </button>
         </section>
       </aside>
@@ -58,6 +59,7 @@
           <article><span>Текущий прогон</span><strong>загрузка...</strong></article>
           <article><span>Критично</span><strong>загрузка...</strong></article>
           <article><span>Последний запуск</span><strong>загрузка...</strong></article>
+          <article><span>Storage V2</span><strong>загрузка...</strong></article>
         </section>
 
         <section id="view-root"></section>
@@ -66,6 +68,6 @@
       <aside class="details-drawer" id="details-drawer"></aside>
     </div>
 
-    <script src="./app.js"></script>
+    <script src="/app.js"></script>
   </body>
 </html>

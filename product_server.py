@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import discover
+from storage_v2 import StorageV2
 
 UI_DIR = ROOT / "ui"
 RUNS_DIR = ROOT / "runs"
@@ -21,6 +22,7 @@ REPORTS_DIR = ROOT / "reports"
 DEFAULT_CONFIG = ROOT / "discovery" / "target-java.json"
 DEFAULT_BASELINE = BASELINES_DIR / "discovery-target-java"
 PRODUCT_STATE = ROOT / ".runtime" / "product-state.json"
+STORAGE = StorageV2(ROOT / ".runtime" / "storage-v2")
 
 
 def read_json(path):
@@ -36,6 +38,15 @@ def safe_child_dir(parent, name):
     if not str(path).startswith(str(parent)):
         raise ValueError("Путь выходит за пределы рабочей папки")
     return path
+
+
+def safe_artifact_path(run_id, artifact_name):
+    run_dir = safe_child_dir(RUNS_DIR, run_id)
+    artifacts_dir = (run_dir / "artifacts").resolve()
+    target = (artifacts_dir / artifact_name).resolve()
+    if not str(target).startswith(str(artifacts_dir)) or not target.exists() or not target.is_file():
+        raise FileNotFoundError("Artifact not found")
+    return target
 
 
 def write_json(path, value):
@@ -97,6 +108,30 @@ def product_run_dirs():
     ]
 
 
+def sync_storage_v2():
+    for item in product_run_dirs():
+        graph_path = item / "discovery.json"
+        error = read_error(item)
+        graph = read_json(graph_path) if graph_path.exists() else None
+        meta = read_meta(item)
+        meta["runDir"] = str(item)
+        meta["errorPath"] = str(item / "run-error.json") if error else None
+        html_report = REPORTS_DIR / f"{item.name}-report.html"
+        json_report = REPORTS_DIR / f"{item.name}-report.json"
+        STORAGE.record_existing_run(
+            item.name,
+            meta,
+            graph=graph,
+            error=error,
+            report_html=html_report if html_report.exists() else None,
+            report_json=json_report if json_report.exists() else None,
+        )
+        baseline_name = meta.get("baselineName")
+        baseline_dir = BASELINES_DIR / baseline_name if baseline_name else None
+        if baseline_dir and (baseline_dir / "discovery.json").exists() and not STORAGE.baseline_path(baseline_name).exists():
+            STORAGE.record_baseline(baseline_name, item.name, baseline_dir, read_json(baseline_dir / "discovery.json"))
+
+
 def successful_product_run_dirs():
     return [item for item in product_run_dirs() if (item / "discovery.json").exists()]
 
@@ -146,6 +181,15 @@ def artifact_json(run_dir, item):
         return json.loads(text)
     except json.JSONDecodeError:
         return text[:4000]
+
+
+def artifact_link(run_dir, artifact):
+    if not artifact:
+        return None
+    path = run_dir / "artifacts" / artifact
+    if not path.exists():
+        return None
+    return f"/artifacts/{run_dir.name}/{artifact}"
 
 
 def diff_bucket(diffs):
@@ -199,7 +243,7 @@ def review_diff(item):
     }
 
 
-def build_page_node(path, old_page, new_page, items, index):
+def build_page_node(path, old_page, new_page, items, index, baseline_dir, run_dir):
     current = new_page or old_page or {}
     status = severity_for(items, old_page is not None, new_page is not None)
     return {
@@ -218,6 +262,12 @@ def build_page_node(path, old_page, new_page, items, index):
             "currentStatus": new_page.get("status") if new_page else "not discovered",
             "headers": {},
             "payload": None,
+            "artifacts": {
+                "baselineHtml": artifact_link(baseline_dir, old_page.get("artifact")) if old_page else None,
+                "currentHtml": artifact_link(run_dir, new_page.get("artifact")) if new_page else None,
+                "baselineScreenshot": artifact_link(baseline_dir, old_page.get("screenshotArtifact")) if old_page else None,
+                "currentScreenshot": artifact_link(run_dir, new_page.get("screenshotArtifact")) if new_page else None,
+            },
             "schema": "HTML page snapshot",
             "visibleTextDiff": visible_diff(old_page, new_page),
             "response": {
@@ -243,12 +293,21 @@ def build_api_node(path, old_api, new_api, items, index, baseline_dir, run_dir):
         "summary": short_message(items, f"API snapshot: {current.get('status', '-')}."),
         "details": {
             "url": current.get("url", path),
-            "method": "GET",
+            "method": current.get("method", "GET"),
+            "resourceType": current.get("resourceType"),
+            "sources": current.get("sources", []),
             "baselineStatus": old_api.get("status") if old_api else "not discovered",
             "currentStatus": new_api.get("status") if new_api else "not discovered",
-            "requestHeaders": {"user-agent": "autonomous-discovery-mvp/0.1"},
-            "responseHeaders": {},
-            "payload": {"baseline": None, "current": None},
+            "requestHeaders": current.get("requestHeaders", {"user-agent": "autonomous-discovery-mvp/0.1"}),
+            "responseHeaders": current.get("responseHeaders", {}),
+            "artifacts": {
+                "baselineResponse": artifact_link(baseline_dir, old_api.get("artifact")) if old_api else None,
+                "currentResponse": artifact_link(run_dir, new_api.get("artifact")) if new_api else None,
+            },
+            "payload": {
+                "baseline": old_api.get("requestBody") if old_api else None,
+                "current": new_api.get("requestBody") if new_api else None,
+            },
             "response": {
                 "baseline": artifact_json(baseline_dir, old_api) if old_api else None,
                 "current": artifact_json(run_dir, new_api) if new_api else None,
@@ -287,7 +346,41 @@ def build_edges(graph, nodes):
     return result
 
 
+def build_action_rows(old_actions, new_actions, by_entity, baseline_dir, run_dir):
+    rows = []
+    for index, action_id in enumerate(sorted(set(old_actions) | set(new_actions)), start=1):
+        old_action = old_actions.get(action_id)
+        new_action = new_actions.get(action_id)
+        current = new_action or old_action or {}
+        items = by_entity.get(f"action:{action_id}", [])
+        items += by_entity.get(f"actions:{action_id}", [])
+        rows.append({
+            "id": action_id,
+            "label": current.get("text") or action_id,
+            "page": current.get("page", ""),
+            "status": severity_for(items, old_action is not None, new_action is not None),
+            "actionStatus": current.get("status", "-"),
+            "tag": current.get("tag", ""),
+            "href": current.get("href", ""),
+            "beforeUrl": current.get("beforeUrl", ""),
+            "afterUrl": current.get("afterUrl", ""),
+            "afterPath": current.get("afterPath", ""),
+            "newEndpoints": current.get("newEndpoints", []),
+            "endpointNodeIds": [node_id("api", path) for path in current.get("newEndpoints", [])],
+            "networkBefore": current.get("networkBefore", 0),
+            "networkAfter": current.get("networkAfter", 0),
+            "artifacts": {
+                "baselineScreenshot": artifact_link(baseline_dir, old_action.get("screenshotArtifact")) if old_action else None,
+                "currentScreenshot": artifact_link(run_dir, new_action.get("screenshotArtifact")) if new_action else None,
+            },
+            "diffs": [review_diff(item) for item in items],
+            "order": index,
+        })
+    return rows
+
+
 def build_state():
+    sync_storage_v2()
     run_dir, baseline_dir = selected_run_and_baseline()
 
     if not baseline_dir or not run_dir:
@@ -303,13 +396,15 @@ def build_state():
     for index, path in enumerate(page_paths):
         items = by_entity.get(f"page:{path}", [])
         items += by_entity.get(f"pages:{path}", [])
-        nodes.append(build_page_node(path, baseline.get("pages", {}).get(path), current.get("pages", {}).get(path), items, index))
+        nodes.append(build_page_node(path, baseline.get("pages", {}).get(path), current.get("pages", {}).get(path), items, index, baseline_dir, run_dir))
 
     api_paths = sorted(set(baseline.get("apiEndpoints", {})) | set(current.get("apiEndpoints", {})))
     for index, path in enumerate(api_paths):
         items = by_entity.get(f"api:{path}", [])
         items += by_entity.get(f"apiEndpoints:{path}", [])
         nodes.append(build_api_node(path, baseline.get("apiEndpoints", {}).get(path), current.get("apiEndpoints", {}).get(path), items, index, baseline_dir, run_dir))
+
+    actions = build_action_rows(baseline.get("actions", {}), current.get("actions", {}), by_entity, baseline_dir, run_dir)
 
     fail_count = sum(1 for item in diffs if item.get("severity") == "fail")
     report = report_for_run(run_dir.name)
@@ -332,8 +427,15 @@ def build_state():
             "summary": current_summary,
             "reportUrl": f"/reports/{report.name}" if report else None,
         },
+        "storage": STORAGE.model_state(),
         "runs": list_runs(run_dir, len(diffs), fail_count),
         "nodes": nodes,
+        "actions": actions,
+        "console": {
+            "events": current.get("console", {}).get("events", []),
+            "errors": current.get("console", {}).get("errors", []),
+            "artifactUrl": artifact_link(run_dir, current.get("console", {}).get("artifact")),
+        },
         "edges": build_edges(current, nodes),
     }
 
@@ -355,7 +457,8 @@ def target_from_config(base_url):
             "rateLimitMs": limits.get("rateLimitMs", 150),
             "requestTimeoutSec": limits.get("requestTimeoutSec", 10),
             "overallTimeoutSec": limits.get("overallTimeoutSec", 300),
-            "maxActionsPerPage": 0,
+            "maxActionsPerPage": limits.get("maxActionsPerPage", 0),
+            "ignoreJsonKeys": limits.get("ignoreJsonKeys", ["requestId", "generatedAt", "timestamp", "sessionId", "csrf", "uuid"]),
         },
         "guardrails": [
             {"title": "Лимит запросов", "text": "Discovery runner делает паузы между запросами и не запускает опасные методы."},
@@ -394,14 +497,18 @@ def list_runs(current_run_dir, diff_count, fail_count):
 
 
 def empty_state():
+    sync_storage_v2()
     return {
         "project": "Regression Graph",
         "mode": "empty",
         "target": target_from_config(""),
         "baseline": {"id": None, "label": "Нет baseline", "capturedAt": "", "summary": {"pages": 0, "apiEndpoints": 0, "edges": 0}},
         "current": {"id": None, "label": "Нет run", "capturedAt": "", "summary": {"pages": 0, "apiEndpoints": 0, "edges": 0, "diffs": 0, "critical": 0}},
+        "storage": STORAGE.model_state(),
         "runs": list_runs(None, 0, 0),
         "nodes": [],
+        "actions": [],
+        "console": {"events": [], "errors": [], "artifactUrl": None},
         "edges": [],
     }
 
@@ -417,6 +524,8 @@ def make_temp_config(payload):
     limits["rateLimitMs"] = int(payload.get("rateLimitMs") or limits.get("rateLimitMs", 150))
     limits["requestTimeoutSec"] = int(payload.get("requestTimeoutSec") or limits.get("requestTimeoutSec", 10))
     limits["overallTimeoutSec"] = int(payload.get("overallTimeoutSec") or limits.get("overallTimeoutSec", 300))
+    limits["maxActionsPerPage"] = int(payload.get("maxActionsPerPage") or limits.get("maxActionsPerPage", 0))
+    limits["ignoreJsonKeys"] = payload.get("ignoreJsonKeys") or limits.get("ignoreJsonKeys", ["requestId", "generatedAt", "timestamp", "sessionId", "csrf", "uuid"])
     config["allowedPathPrefixes"] = payload.get("allowedPathPrefixes") or ["/", "/api/"]
     path = ROOT / ".runtime" / "last-discovery-config.json"
     write_json(path, config)
@@ -425,6 +534,7 @@ def make_temp_config(payload):
 
 def run_discovery(payload):
     base_url = payload.get("baseUrl", "").strip()
+    discovery_mode = payload.get("discoveryMode") or "http"
     if not base_url.startswith(("http://", "https://")):
         raise ValueError("baseUrl должен начинаться с http:// или https://")
     config_path = make_temp_config(payload)
@@ -437,11 +547,14 @@ def run_discovery(payload):
         "baseUrl": base_url,
         "baselineName": baseline_name,
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "discoveryMode": discovery_mode,
         "source": "product-ui",
     })
+    STORAGE.record_run_started(run_name, base_url, baseline_name, run_dir)
+    runner = "browser_discover.py" if discovery_mode == "browser" else "discover.py"
     command = [
         sys.executable,
-        str(ROOT / "discover.py"),
+        str(ROOT / runner),
         "discover",
         "--config",
         str(config_path),
@@ -456,10 +569,12 @@ def run_discovery(payload):
     except subprocess.TimeoutExpired as exc:
         message = format_timeout_error(base_url, run_name, overall_timeout_sec, exc)
         write_run_error(run_dir, base_url, message, "timeout", command)
+        STORAGE.record_run_error(run_name, base_url, baseline_name, run_dir / "run-error.json")
         raise RuntimeError(message)
     if completed.returncode != 0:
         message = format_discovery_error(completed.stderr or completed.stdout or f"Discovery failed with {completed.returncode}")
         write_run_error(run_dir, base_url, message, "process_error", command)
+        STORAGE.record_run_error(run_name, base_url, baseline_name, run_dir / "run-error.json")
         raise RuntimeError(message)
 
     baseline_exists = (baseline_dir / "discovery.json").exists()
@@ -472,12 +587,25 @@ def run_discovery(payload):
             shutil.rmtree(baseline_dir)
         shutil.copytree(run_dir, baseline_dir)
         baseline_action = "approved_first_baseline" if not baseline_exists or base_url_changed else "approved"
+        graph = read_json(run_dir / "discovery.json")
+        STORAGE.record_baseline(baseline_name, run_name, baseline_dir, graph)
+        STORAGE.record_run_success(run_name, graph, baseline_name, baseline_action)
     else:
         report_path = REPORTS_DIR / f"{run_name}-report.html"
         diffs = discover.compare_graphs(read_json(baseline_dir / "discovery.json"), read_json(run_dir / "discovery.json"))
         report_path.write_text(discover.render_report(read_json(baseline_dir / "discovery.json"), read_json(run_dir / "discovery.json"), diffs), encoding="utf-8")
         write_json(report_path.with_suffix(".json"), diffs)
         baseline_action = "compared"
+        STORAGE.record_run_success(
+            run_name,
+            read_json(run_dir / "discovery.json"),
+            baseline_name,
+            baseline_action,
+            report_html=report_path,
+            report_json=report_path.with_suffix(".json"),
+            diffs=len(diffs),
+            critical=sum(1 for item in diffs if item.get("severity") == "fail"),
+        )
 
     return {"ok": True, "run": run_name, "baseline": baseline_name, "action": baseline_action, "stdout": completed.stdout}
 
@@ -526,6 +654,7 @@ def approve_run(payload):
     if baseline_dir.exists():
         shutil.rmtree(baseline_dir)
     shutil.copytree(run_dir, baseline_dir)
+    STORAGE.record_baseline(baseline_name, run_id, baseline_dir, read_json(run_dir / "discovery.json"))
     return {"ok": True, "baseline": baseline_name, "run": run_id}
 
 
@@ -589,6 +718,9 @@ def delete_run(payload):
     removed_reports = remove_run_reports(run_id)
     removed_baseline = remove_baseline_if_owned_by_run(run_dir, meta.get("baselineName"), run_id)
     shutil.rmtree(run_dir)
+    STORAGE.delete_run(run_id)
+    if removed_baseline:
+        STORAGE.delete_baseline(removed_baseline)
     return {"ok": True, "deleted": run_id, "removedReports": removed_reports, "removedBaseline": removed_baseline}
 
 
@@ -596,7 +728,7 @@ class ProductHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
-        if path in {"/", "/ui", "/ui/"}:
+        if path in {"/", "/ui", "/ui/"} or is_ui_route(path):
             return self.send_file(UI_DIR / "index.html", "text/html; charset=utf-8")
         if path == "/api/state":
             return self.send_json(build_state())
@@ -606,6 +738,14 @@ class ProductHandler(BaseHTTPRequestHandler):
             return self.send_static(UI_DIR, path.removeprefix("/ui/"))
         if path.startswith("/reports/"):
             return self.send_static(REPORTS_DIR, path.removeprefix("/reports/"))
+        if path.startswith("/artifacts/"):
+            parts = path.removeprefix("/artifacts/").split("/", 1)
+            if len(parts) != 2:
+                return self.send_error(404)
+            try:
+                return self.send_artifact(parts[0], parts[1])
+            except Exception:
+                return self.send_error(404)
         self.send_error(404)
 
     def do_POST(self):
@@ -641,6 +781,21 @@ class ProductHandler(BaseHTTPRequestHandler):
             content_type = "text/javascript; charset=utf-8"
         elif target.suffix == ".json":
             content_type = "application/json; charset=utf-8"
+        elif target.suffix == ".png":
+            content_type = "image/png"
+        return self.send_file(target, content_type)
+
+    def send_artifact(self, run_id, artifact_name):
+        target = safe_artifact_path(run_id, artifact_name)
+        content_type = "application/octet-stream"
+        if target.suffix == ".html":
+            content_type = "text/html; charset=utf-8"
+        elif target.suffix == ".json":
+            content_type = "application/json; charset=utf-8"
+        elif target.suffix == ".png":
+            content_type = "image/png"
+        elif target.suffix in {".txt", ".log"}:
+            content_type = "text/plain; charset=utf-8"
         return self.send_file(target, content_type)
 
     def send_file(self, path, content_type):
@@ -669,6 +824,21 @@ def main():
     print(f"Product UI server: http://127.0.0.1:{port}")
     print("Press Ctrl+C to stop.")
     server.serve_forever()
+
+
+def is_ui_route(path):
+    exact = {
+        "/target",
+        "/runs",
+        "/review",
+        "/catalog",
+        "/catalog/endpoints",
+        "/catalog/pages",
+        "/catalog/seed",
+        "/actions",
+        "/graph",
+    }
+    return path in exact
 
 
 if __name__ == "__main__":

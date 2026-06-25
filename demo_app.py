@@ -39,6 +39,7 @@ def page_html(version, products):
       .grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }}
       .card {{ border: 1px solid #ddd; padding: 12px; border-radius: 6px; }}
       .price {{ color: #0a6; font-weight: bold; }}
+      button {{ margin: 12px 0; padding: 8px 12px; }}
     </style>
   </head>
   <body>
@@ -46,10 +47,18 @@ def page_html(version, products):
       <h1>{heading}</h1>
       <p>{promo}</p>
       <p>Total products: {len(products)}</p>
+      <button id="load-cart" type="button">Load cart summary</button>
+      <pre id="cart-result"></pre>
       <section class="grid">
         {cards}
       </section>
     </main>
+    <script>
+      document.getElementById("load-cart").addEventListener("click", async () => {{
+        const response = await fetch("/api/cart/summary");
+        document.getElementById("cart-result").textContent = JSON.stringify(await response.json(), null, 2);
+      }});
+    </script>
   </body>
 </html>"""
 
@@ -77,6 +86,10 @@ class DemoHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/health":
             self.respond_json(200, {"ok": True, "version": self.app_version, "requestId": "req-12345"})
+            return
+
+        if parsed.path == "/api/cart/summary":
+            self.respond_json(200, {"version": self.app_version, "items": 2, "total": 42.5})
             return
 
         self.respond_json(404, {"error": "not found"})

@@ -1,5 +1,6 @@
 import argparse
 import difflib
+import hashlib
 import html
 import json
 import re
@@ -258,10 +259,13 @@ def discover(args):
             "apiHints": sorted(set(parser.api_hints)),
         }
 
-        for href in parser.links:
-            linked_path = canonical_path(args.base_url, href)
-            if not linked_path:
-                continue
+        linked_paths = sorted({
+            linked_path
+            for href in parser.links
+            for linked_path in [canonical_path(args.base_url, href)]
+            if linked_path
+        })
+        for linked_path in linked_paths:
             add_edge(edges, edge_seen, {"from": path, "type": "link", "target": linked_path})
             if depth < max_depth and linked_path not in queued and not linked_path.startswith("/api/"):
                 queue.append((linked_path, depth + 1, f"link:{path}"))
@@ -309,9 +313,15 @@ def discover(args):
     print(f"Edges: {len(edges)}")
 
 
+def safe_artifact_name(prefix, path, extension):
+    slug = re.sub(r"[^a-zA-Z0-9_.-]+", "_", path.strip("/") or "root").strip("._-")
+    slug = slug[:80].strip("._-") or "root"
+    digest = hashlib.sha1(path.encode("utf-8")).hexdigest()[:12]
+    return f"{prefix}-{slug}-{digest}.{extension}"
+
+
 def page_artifact_name(path):
-    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", path.strip("/") or "root")
-    return f"page-{safe}.html"
+    return safe_artifact_name("page", path, "html")
 
 
 def add_edge(edges, seen, edge):
@@ -323,8 +333,7 @@ def add_edge(edges, seen, edge):
 
 
 def api_artifact_name(path):
-    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", path.strip("/") or "root")
-    return f"api-{safe}.json"
+    return safe_artifact_name("api", path, "json")
 
 
 def capture_api(base_url, path, artifacts_dir, timeout_sec=10):
@@ -378,8 +387,10 @@ def compare(args):
 
 def compare_graphs(old, new):
     diffs = []
+    ignore_json_keys = ignore_keys_for_compare(old, new)
     compare_collection_keys(diffs, "pages", old.get("pages", {}), new.get("pages", {}))
     compare_collection_keys(diffs, "apiEndpoints", old.get("apiEndpoints", {}), new.get("apiEndpoints", {}))
+    compare_collection_keys(diffs, "actions", old.get("actions", {}), new.get("actions", {}))
 
     for path in sorted(set(old.get("pages", {})) & set(new.get("pages", {}))):
         old_page = old["pages"][path]
@@ -396,15 +407,26 @@ def compare_graphs(old, new):
         new_api = new["apiEndpoints"][path]
         if old_api.get("status") != new_api.get("status"):
             diffs.append(diff(f"api:{path}", "status", "fail", old_api.get("status"), new_api.get("status"), "API status changed"))
-        if old_api.get("schema") != new_api.get("schema"):
-            diffs.append(diff(f"api:{path}", "schema", "fail", old_api.get("schema"), new_api.get("schema"), "API schema changed"))
-        if old_api.get("normalizedBody") != new_api.get("normalizedBody"):
+        old_schema = strip_ignored_json_keys(old_api.get("schema"), ignore_json_keys)
+        new_schema = strip_ignored_json_keys(new_api.get("schema"), ignore_json_keys)
+        if old_schema != new_schema:
+            diffs.append(diff(f"api:{path}", "schema", "fail", old_schema, new_schema, "API schema changed"))
+        old_body = strip_ignored_json_keys(old_api.get("normalizedBody"), ignore_json_keys)
+        new_body = strip_ignored_json_keys(new_api.get("normalizedBody"), ignore_json_keys)
+        if old_body != new_body:
             patch = list(difflib.unified_diff(
-                json.dumps(old_api.get("normalizedBody"), indent=2, sort_keys=True).splitlines(),
-                json.dumps(new_api.get("normalizedBody"), indent=2, sort_keys=True).splitlines(),
+                json.dumps(old_body, indent=2, sort_keys=True).splitlines(),
+                json.dumps(new_body, indent=2, sort_keys=True).splitlines(),
                 lineterm="",
             ))
-            diffs.append(diff(f"api:{path}", "body", "review", old_api.get("normalizedBody"), new_api.get("normalizedBody"), "API body changed", patch))
+            diffs.append(diff(f"api:{path}", "body", "review", old_body, new_body, "API body changed", patch))
+
+    for action_id in sorted(set(old.get("actions", {})) & set(new.get("actions", {}))):
+        old_action = old["actions"][action_id]
+        new_action = new["actions"][action_id]
+        for field in ["status", "afterPath", "newEndpoints"]:
+            if old_action.get(field) != new_action.get(field):
+                diffs.append(diff(f"action:{action_id}", field, "review", old_action.get(field), new_action.get(field), f"Action {field} changed"))
 
     old_edges = sorted(edge_key(edge) for edge in old.get("edges", []))
     new_edges = sorted(edge_key(edge) for edge in new.get("edges", []))
@@ -415,11 +437,34 @@ def compare_graphs(old, new):
     return diffs
 
 
+def ignore_keys_for_compare(old, new):
+    values = []
+    for graph in [old, new]:
+        limits = graph.get("limits", {}) if isinstance(graph, dict) else {}
+        values.extend(limits.get("ignoreJsonKeys") or [])
+    return {str(item).strip().lower() for item in values if str(item).strip()}
+
+
+def strip_ignored_json_keys(value, ignored):
+    if not ignored:
+        return value
+    if isinstance(value, dict):
+        return {
+            key: strip_ignored_json_keys(child, ignored)
+            for key, child in value.items()
+            if str(key).lower() not in ignored
+        }
+    if isinstance(value, list):
+        return [strip_ignored_json_keys(item, ignored) for item in value]
+    return value
+
+
 def compare_collection_keys(diffs, name, old_items, new_items):
     old_keys = set(old_items)
     new_keys = set(new_items)
+    removed_severity = "review" if name == "pages" else "fail"
     for key in sorted(old_keys - new_keys):
-        diffs.append(diff(name, "removed", "fail", key, None, f"{name} item removed: {key}"))
+        diffs.append(diff(name, "removed", removed_severity, key, None, f"{name} item removed: {key}"))
     for key in sorted(new_keys - old_keys):
         diffs.append(diff(name, "added", "review", None, key, f"{name} item added: {key}"))
 

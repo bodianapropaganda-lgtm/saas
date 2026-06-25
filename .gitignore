@@ -8,6 +8,10 @@ __pycache__/
 
 # Java build output
 target-app/backend/build/
+backend-java/target/
+
+# Local portable tooling
+.tools/
 
 # Node/Vite output
 target-app/frontend/node_modules/
